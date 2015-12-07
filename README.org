@@ -1,0 +1,162 @@
+* lab-puppet
+lab-puppet for learning
+
+* Basic Environment
+*** /etc/network/interfaces on puppetserver
+#+begin_src bash
+auto lo
+iface lo inet loopback
+ 
+auto eth0
+iface eth0 inet static
+    address 192.168.56.2
+    netmask 255.255.255.0
+ 
+auto eth1
+iface eth1 inet dhcp
+#+end_src
+
+*** /etc/network/interfaces on puppetclient
+#+begin_src bash
+auto lo
+iface lo inet loopback
+ 
+auto eth0
+iface eth0 inet static
+    address 192.168.56.3
+    netmask 255.255.255.0
+ 
+auto eth1
+iface eth1 inet dhcp
+#+end_src
+
+
+*** /etc/hosts on puppetserver
+#+begin_src bash
+127.0.0.1       localhost
+127.0.1.1       puppetserver
+192.168.56.3    puppetclient
+ 
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+#+end_src
+
+*** /etc/hosts on puppetclient
+#+begin_src bash
+127.0.0.1       localhost
+127.0.1.1       puppetclient
+192.168.56.2    puppetserver
+ 
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+#+end_src
+
+* Basic Puppet Environment
+*** On the puppetserver VM
+#+begin_src bash
+~# <strong>sudo apt-get update
+~# <strong>sudo apt-get install puppetmaster
+#+end_src
+
+*** On the puppetclient VM
+#+begin_src bash
+~# sudo apt-get update
+~# sudo apt-get install puppet
+#+end_src
+
+*** /etc/puppet/puppet.conf on puppetclient
+#+begin_src bash
+[main]
+server=puppetserver
+logdir=/var/log/puppet
+vardir=/var/lib/puppet
+ssldir=/var/lib/puppet/ssl
+rundir=/var/run/puppet
+factpath=$vardir/lib/facter
+templatedir=$confdir/templates
+prerun_command=/etc/puppet/etckeeper-commit-pre
+postrun_command=/etc/puppet/etckeeper-commit-post
+ 
+[master]
+# These are needed when the puppetmaster is run by passenger
+# and can safely be removed if webrick is used.
+ssl_client_header = SSL_CLIENT_S_DN 
+ssl_client_verify_header = SSL_CLIENT_VERIFY
+#+end_src
+
+*** puppetclient VM
+#+begin_src bash
+~# sudo puppet agent --verbose --no-daemonize --onetime
+
+info: Creating a new SSL key for puppetclient
+info: Creating a new SSL certificate request for puppetclient
+info: Certificate Request fingerprint (md5): 20:74:A7:BD:69:5D:50:8D:6A:79:67:6E:DC:5E:41:E0
+Exiting; no certificate found and waitforcert is disabled
+#+end_src
+
+*** puppetserver VM
+#+begin_src bash
+~# sudo puppet cert --list
+
+"puppetclient" (20:74:A7:BD:69:5D:50:8D:6A:79:67:6E:DC:5E:41:E0)
+#+end_src
+
+*** puppetserver VM 
+#+begin_src bash
+~# sudo puppet cert --list
+
+"puppetclient" (20:74:A7:BD:69:5D:50:8D:6A:79:67:6E:DC:5E:41:E0)
+#+end_src
+
+
+#+begin_src bash
+~# sudo puppet cert --sign puppetclient
+notice: Signed certificate request for puppetclient
+notice: Removing file Puppet::SSL::CertificateRequest puppetclient at '/var/lib/puppet/ssl/ca/requests/puppetclient.pem'h
+#+end_src
+
+puppetClient VM
+#+begin_src bash
+~# sudo puppet agent --verbose --no-daemonize --onetime
+info: Caching certificate for puppetclient
+info: Caching certificate_revocation_list for ca
+info: Caching catalog for puppetclient
+info: Applying configuration version '1395687915'
+info: Creating state file /var/lib/puppet/state/state.yaml
+notice: Finished catalog run in 0.02 secondsh
+#+end_src
+
+* Basic Configuration with Puppet
+*** /etc/puppet/manifests/site.pp on puppetserver
+#+begin_src bash
+node "puppetclient" {
+ 
+  file { "/root/helloworld.txt":
+    ensure => file,
+    owner  => "root",
+    group  => "root",
+    mode   => 0644
+  }
+ 
+}
+#+end_src
+
+On the puppetclient VM
+#+begin_src bash
+~
+# sudo puppet agent --verbose --no-daemonize --onetime
+
+info: Caching catalog for puppetclientinfo: Applying configuration version '1395862307'
+notice: /Stage[main]//Node[puppetclient]/File[/home/ubuntu/helloworld.txt]/ensure: created
+notice: Finished catalog run in 0.03 seconds
+#+end_src
+
+... To be continue
