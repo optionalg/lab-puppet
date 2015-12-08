@@ -149,7 +149,7 @@ node "puppetclient" {
 }
 #+end_src
 
-On the puppetclient VM
+*** On the puppetclient VM
 #+begin_src bash
 ~
 # sudo puppet agent --verbose --no-daemonize --onetime
@@ -157,6 +157,697 @@ On the puppetclient VM
 info: Caching catalog for puppetclientinfo: Applying configuration version '1395862307'
 notice: /Stage[main]//Node[puppetclient]/File[/home/ubuntu/helloworld.txt]/ensure: created
 notice: Finished catalog run in 0.03 seconds
+
+# In compare...
+~
+# sudo puppet agent --verbose --no-daemonize --onetime
+
+info: Caching catalog for puppetclient
+info: Applying configuration version '1395862542'
+notice: Finished catalog run in 0.03 seconds
+
 #+end_src
 
-... To be continue
+
+*** Deploy the files On puppetserver VM
+#+begin_src bash
+~
+sudo -s
+
+~
+mkdir /etc/puppet/files
+
+~
+echo "Hello World." &gt; /etc/puppet/files/helloworld.txt
+#+end_src
+
+*** /etc/puppet/fileserver.conf on puppetserver
+#+begin_src bash
+# This file consists of arbitrarily named sections/modules
+
+# defining where files are served from and to whom
+
+# Define a section 'files'
+
+# Adapt the allow/deny settings to your needs. Order
+
+# for allow/deny does not matter, allow always takes precedence
+
+# over deny 
+[files]
+  path /etc/puppet/files
+  allow *
+#  allow *.example.com
+
+#  deny *.evil.example.com
+
+#  allow 192.168.0.0/24
+[plugins]
+#  allow *.example.com
+
+#  deny *.evil.example.com
+
+#  allow 192.168.0.0/24
+
+#+end_src
+
+*** /etc/puppet/manifests/site.pp on puppetserver
+#+begin_src bash
+node "puppetclient" {
+ 
+  file { "/root/helloworld.txt":
+    ensure => file,
+    owner  => "root",
+    group  => "root",
+    mode   => 0644,
+    source => "puppet://puppetserver/files/helloworld.txt"
+  }
+ 
+}
+#+end_src
+
+*** puppetclient VM
+#+begin_src bash
+~
+# sudo puppet agent --verbose --no-daemonize --onetime
+
+ 
+info: Caching catalog for puppetclient
+info: Applying configuration version '1395878127'
+info: FileBucket adding {md5}ff22941336956098ae9a564289d1bf1b
+info: /Stage[main]//Node[puppetclient]/File[/home/ubuntu/helloworld.txt]: Filebucketed /home/ubuntu/helloworld.txt to puppet with sum ff22941336956098ae9a564289d1bf1b
+notice: /Stage[main]//Node[puppetclient]/File[/home/ubuntu/helloworld.txt]/content: content changed '{md5}ff22941336956098ae9a564289d1bf1b' to '{md5}770b95bb61d5b0406c135b6e42260580'
+notice: Finished catalog run in 0.09 seconds
+#+end_src
+
+
+
+* Module & Resources
+*** On the puppetserver VM
+#+begin_src bash
+~
+# sudo mkdir -p /etc/puppet/modules/helloworld/manifests
+#+end_src
+
+
+*** On the puppetserver VM
+#+begin_src bash
+~
+# sudo mkdir -p /etc/puppet/modules/helloworld/files
+
+~
+# sudo mv /etc/puppet/files/helloworld.txt /etc/puppet/modules/helloworld/files/
+#+end_src
+
+
+*** /etc/puppet/modules/helloworld/manifests/init.pp on puppetserver
+#+begin_src bash
+class helloworld {
+  file { "/home/ubuntu/helloworld.txt":
+    ensure => file,
+    owner  => "ubuntu",
+    group  => "ubuntu",
+    mode   => 0644,
+    source => "puppet://puppetserver/modules/helloworld/helloworld.txt"
+  }
+}
+#+end_src
+
+
+*** /etc/puppet/manifests/site.pp on puppetserver
+#+begin_src bash
+node "puppetclient" {
+  include helloworld
+}
+#+end_src
+
+
+*** On the puppetclient VM
+#+begin_src bash
+~
+# sudo puppet agent --verbose --no-daemonize --onetime
+
+ 
+info: Caching catalog for puppetclient
+info: Applying configuration version '1396287576'
+notice: Finished catalog run in 0.05 seconds
+#+end_src
+
+
+*** NOW UNDER: /etc/puppet
+#+begin_src bash
+files
+ 
+manifests
+  site.pp
+ 
+modules
+  helloworld
+    manifests
+      init.pp
+    files
+      helloworld.txt
+#+end_src
+
+
+* A REAL MODULE: apache2
+*** On the puppetserver VM
+#+begin_src bash
+~
+# sudo mv /etc/puppet/modules/helloworld /etc/puppet/modules/apache2
+#+end_src
+
+
+*** /etc/puppet/modules/apache2/manifests/install.pp on puppetserver
+#+begin_src bash
+class apache2::install {
+ 
+  package { [ "apache2-mpm-prefork", "apache2-utils" ]:
+    ensure => present
+  }
+ 
+}
+#+end_src
+
+
+* Module and variable
+*** /etc/puppet/modules/apache2/manifests/config.pp on puppetserver
+#+begin_src bash
+class apache2::config {
+ 
+  file { "/etc/apache2/sites-available/${hostname}.conf":
+    mode    => 0644,
+    owner   => "root",
+    group   => "root",
+    content => template("apache2/etc/apache2/sites-available/vhost.conf.erb")
+  }
+ 
+}
+#+end_src
+
+
+*** On the puppetclient VM
+#+begin_src bash
+~
+# hostname
+puppetclient
+#+end_src
+
+
+*** /etc/puppet/modules/apache2/templates/etc/apache2/sites-available/vhost.conf.erb on puppetserver
+#+begin_src bash
+<VirtualHost *:80>
+  ServerName <%= hostname %>
+ 
+  ServerAdmin webmaster@<%= hostname %>
+ 
+  DocumentRoot /var/www
+ 
+  <Directory />
+    Options FollowSymLinks
+    AllowOverride None
+  </Directory>
+ 
+  <Directory /var/www/>
+    Options Indexes FollowSymLinks MultiViews
+    AllowOverride All
+    Order allow,deny
+    allow from all
+  </Directory>
+ 
+  ScriptAlias /cgi-bin/ /usr/lib/cgi-bin/
+  <Directory "/usr/lib/cgi-bin">
+    AllowOverride None
+    Options +ExecCGI -MultiViews +SymLinksIfOwnerMatch
+    Order allow,deny
+    Allow from all
+  </Directory>
+ 
+  ErrorLog ${APACHE_LOG_DIR}/<%= hostname %>.error.log
+  LogLevel warn
+ 
+  CustomLog ${APACHE_LOG_DIR}/<%= hostname %>.access.log combined
+</VirtualHost>
+#+end_src
+
+
+*** /etc/puppet/modules/apache2/manifests/config.pp on puppetserver
+#+begin_src bash
+class apache2::config {
+ 
+  file { "/etc/apache2/sites-available/${hostname}.conf":
+    mode    => 0644,
+    owner   => "root",
+    group   => "root",
+    content => template("apache2/etc/apache2/sites-available/vhost.conf.erb"),
+    require => Package["apache2-mpm-prefork"]
+  }
+}
+#+end_src
+
+
+* A test
+*** /etc/puppet/modules/apache2/manifests/init.pp on puppetserver
+#+begin_src bash
+class apache2 {
+ 
+  include apache2::install
+  include apache2::config
+ 
+}
+#+end_src
+
+
+*** /etc/puppet/manifests/site.pp on puppetserver
+#+begin_src bash
+node "puppetclient" {
+ 
+  include apache2
+ 
+}
+#+end_src
+
+
+*** On the puppetclient VM
+#+begin_src bash
+~
+# sudo puppet agent --verbose --no-daemonize --onetime
+
+ 
+info: Caching catalog for puppetclient
+info: Applying configuration version '1396980729'
+notice: /Stage[main]/Apache2::Install/Package[apache2-utils]/ensure: ensure changed 'purged' to 'present'
+notice: /Stage[main]/Apache2::Install/Package[apache2-mpm-prefork]/ensure: ensure changed 'purged' to 'present'
+notice: /Stage[main]/Apache2::Config/File[/etc/apache2/sites-available/puppetclient.conf]/ensure: defined content as '{md5}c55c5bd945cea21c817bca1a465b7dd3'
+notice: Finished catalog run in 16.62 seconds
+#+end_src
+
+
+*** /etc/puppet/modules/apache2/manifests/config.pp on puppetserver
+#+begin_src bash
+class apache2::config {
+ 
+  file { "/etc/apache2/sites-available/${hostname}.conf":
+    mode    => 0644,
+    owner   => "root",
+    group   => "root",
+    content => template("apache2/etc/apache2/sites-available/vhost.conf.erb"),
+    require => Package["apache2-mpm-prefork"]
+  }
+ 
+  file { "/etc/apache2/sites-enabled/${hostname}.conf":
+    ensure  => link,
+    target  => "/etc/apache2/sites-available/${hostname}.conf",
+    require => File["/etc/apache2/sites-available/${hostname}.conf"]
+  }
+ 
+}
+#+end_src
+
+
+*** On the puppetclient VM
+#+begin_src bash
+~
+# sudo puppet agent --verbose --no-daemonize --onetime
+
+ 
+info: Caching catalog for puppetclient
+info: Applying configuration version '1396983687'
+notice: /Stage[main]/Apache2::Config/File[/etc/apache2/sites-enabled/puppetclient.conf]/ensure: created
+notice: Finished catalog run in 0.07 seconds
+#+end_src
+
+
+* Advanced Module File
+*** /etc/puppet/modules/apache2/manifests/service.pp on puppetserver
+#+begin_src bash
+class apache2::service {
+ 
+  service { "apache2":
+    ensure     => running,
+    hasstatus  => true,
+    hasrestart => true,
+    restart    => "/usr/sbin/apachectl configtest && /usr/sbin/service apache2 reload",
+    enable     => true,
+    require    => Package["apache2-mpm-prefork"]
+  }
+ 
+}
+#+end_src
+
+
+*** /etc/puppet/modules/apache2/manifests/init.pp on puppetserver
+#+begin_src bash
+class apache2 {
+ 
+  include apache2::install
+  include apache2::config
+include apache2::service
+}
+#+end_src
+
+
+*** /etc/puppet/modules/apache2/manifests/config.pp on puppetserver
+#+begin_src bash
+class apache2::config {
+ 
+  file { "/etc/apache2/sites-available/${hostname}.conf":
+    mode    => 0644,
+    owner   => "root",
+    group   => "root",
+    content => template("apache2/etc/apache2/sites-available/vhost.conf.erb"),
+    require => Package["apache2-mpm-prefork"],
+    notify  => Service["apache2"]
+  }
+ 
+  file { "/etc/apache2/sites-enabled/${hostname}.conf":
+    ensure  => link,
+    target  => "/etc/apache2/sites-available/${hostname}.conf",
+    require => File["/etc/apache2/sites-available/${hostname}.conf"]
+  }
+ 
+}
+#+end_src
+
+
+*** On the puppetclient VM
+#+begin_src bash
+~
+# sudo puppet agent --verbose --no-daemonize --onetime
+
+ 
+info: Caching catalog for puppetclient
+info: Applying configuration version '1396998784'
+info: FileBucket adding {md5}c55c5bd945cea21c817bca1a465b7dd3
+info: /Stage[main]/Apache2::Config/File[/etc/apache2/sites-available/puppetclient.conf]: Filebucketed /etc/apache2/sites-available/puppetclient.conf to puppet with sum c55c5bd945cea21c817bca1a465b7dd3
+notice: /Stage[main]/Apache2::Config/File[/etc/apache2/sites-available/puppetclient.conf]/content: content changed '{md5}c55c5bd945cea21c817bca1a465b7dd3' to '{md5}afafea12b21e61c5e18879ce3fe475d2'
+info: /Stage[main]/Apache2::Config/File[/etc/apache2/sites-available/puppetclient.conf]: Scheduling refresh of Service[apache2]
+notice: /Stage[main]/Apache2::Service/Service[apache2]: Triggered 'refresh' from 1 events
+notice: Finished catalog run in 0.32 seconds
+#+end_src
+
+
+* Manage Users and Groups
+** RULE:
+Internal Admin：UID/GID [1000 1999]
+External Admin：UID/GID [2000 2999]
+SFTP Account：UID/GID   [3000 3999]
+
+*** On the puppetserver VM
+#+begin_src bash
+# sudo mkdir -p /etc/puppet/modules/user-ubuntu/manifests
+#+end_src
+
+*** /etc/puppet/modules/user-ubuntu/manifests/init.pp on puppetserver
+#+begin_src bash
+class user-ubuntu {
+ 
+  user { "ubuntu":
+    comment    => "ubuntu,,,",
+    home       => "/home/ubuntu",
+    shell      => "/bin/bash",
+    uid        => 1000,
+    gid        => 1000,
+    managehome => "true",
+    password   => '$6$WzFG7Ga3$.BbRW/DFGkx5EIakXIt1udCGxVDPs2uFZg.o8EFzH8BX7cutimTCfTUWDdyHoFjDVTFnBkUWVPGntQTRSo1zp0',
+    groups     => ["adm", "cdrom", "sudo", "dip", "plugdev", "lpadmin", "sambashare"]
+  }
+ 
+  group { "ubuntu":
+    gid => 1000,
+  }
+}
+#+end_src
+
+
+*** /etc/puppet/manifests/site.pp on puppetserver
+#+begin_src bash
+node "puppetclient" {
+ 
+  include user-ubuntu
+  include apache2
+ 
+}
+#+end_src
+
+
+* Manage SSH key with Puppet
+*** On the puppetserver VM
+#+begin_src bash
+~# sudo ssh-keygen
+Generating public/private rsa key pair.
+Enter file in which to save the key (/root/.ssh/id_rsa):
+Created directory '/root/.ssh'.
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /root/.ssh/id_rsa.
+Your public key has been saved in /root/.ssh/id_rsa.pub.
+The key fingerprint is:
+e8:5e:ae:f4:be:1c:a1:79:da:a4:94:50:20:dd:7e:b3 root@puppetserver
+The key's randomart image is:
++--[ RSA 2048]----+
+|  ....           |
+|   ....          |
+|     ..          |
+|     ...o        |
+|    . ..So       |
+|     o +E.       |
+|      B =        |
+|     + @ .       |
+|      =oB.       |
++-----------------+
+ 
+~# sudo cat /root/.ssh/id_rsa.pub
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCvphOrxjMvgtBVTjMzPolL4JGarEigbPuH3cE3iNIcSBPgHyBjDwtin6ls6aMzm0ZbHMdinj1qxSbolkTQ1danZpOAe0G9NB9/ZnYCNd/kUeMAX91B0Pitx6NKoaz0x7H7V1Javd11RN3ylBw6dtOh35Lqmjx22RXNK8sMpLW8tKYOQuY01F5Eiv08U/AKO83w2ZNxYbNuuhHWeN7wHTb176uhuhGGnob0ArvaxCJgJ96bvDYLSph6V067q0chTuutLGSDA4AbC1Bb/d3wcAIqEM1s6VMT8oU0rUHkPH/1AqaKhWDrEcbSp94gAqTMWQxVz+XWBvu1Dc+CsujsqigT root@puppetserver
+#+end_src
+
+
+*** /etc/puppet/modules/user-ubuntu/manifests/init.pp on puppetserver
+#+begin_src bash
+class user-ubuntu {
+ 
+  user { "ubuntu":
+    comment    => "ubuntu,,,",
+    home       => "/home/ubuntu",
+    shell      => "/bin/bash",
+    uid        => 1000,
+    gid        => 1000,
+    managehome => "true",
+    password   => '$6$WzFG7Ga3$.BbRW/DFGkx5EIakXIt1udCGxVDPs2uFZg.o8EFzH8BX7cutimTCfTUWDdyHoFjDVTFnBkUWVPGntQTRSo1zp0',
+    groups     => ["adm", "cdrom", "sudo", "dip", "plugdev", "lpadmin", "sambashare"]
+  }
+ 
+  group { "ubuntu":
+    gid => 1000,
+  }
+ 
+  ssh_authorized_key { "default-ssh-key-for-ubuntu":
+    user   => "ubuntu",
+    ensure => present,
+    type   => "ssh-rsa",
+    key    => "AAAAB3NzaC1yc2EAAAADAQABAAABAQCvphOrxjMvgtBVTjMzPolL4JGarEigbPuH3cE3iNIcSBPgHyBjDwtin6ls6aMzm0ZbHMdinj1qxSbolkTQ1danZpOAe0G9NB9/ZnYCNd/kUeMAX91B0Pitx6NKoaz0x7H7V1Javd11RN3ylBw6dtOh35Lqmjx22RXNK8sMpLW8tKYOQuY01F5Eiv08U/AKO83w2ZNxYbNuuhHWeN7wHTb176uhuhGGnob0ArvaxCJgJ96bvDYLSph6V067q0chTuutLGSDA4AbC1Bb/d3wcAIqEM1s6VMT8oU0rUHkPH/1AqaKhWDrEcbSp94gAqTMWQxVz+XWBvu1Dc+CsujsqigT",
+    name   => "root@puppetserver",
+  }
+ 
+}
+#+end_src
+
+
+*** /home/ubuntu/.ssh/authorized_keys on puppetclient
+#+begin_src bash
+# HEADER: This file was autogenerated at Tue Apr 22 21:58:56 +0200 2014
+# HEADER: by puppet.  While it can still be managed manually, it
+# HEADER: is definitely not recommended.
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCvphOrxjMvgtBVTjMzPolL4JGarEigbPuH3cE3iNIcSBPgHyBjDwtin6ls6aMzm0ZbHMdinj1qxSbolkTQ1danZpOAe0G9NB9/ZnYCNd/kUeMAX91B0Pitx6NKoaz0x7H7V1Javd11RN3ylBw6dtOh35Lqmjx22RXNK8sMpLW8tKYOQuY01F5Eiv08U/AKO83w2ZNxYbNuuhHWeN7wHTb176uhuhGGnob0ArvaxCJgJ96bvDYLSph6V067q0chTuutLGSDA4AbC1Bb/d3wcAIqEM1s6VMT8oU0rUHkPH/1AqaKhWDrEcbSp94gAqTMWQxVz+XWBvu1Dc+CsujsqigT root@puppetserver
+#+end_src
+
+
+** Replace the duplicated part with macro
+*** /etc/puppet/modules/macro-useradd/manifests/init.pp on puppetserver
+#+begin_src bash
+define macro-useradd ( $name, $uid, $password, $groups, $sshkeytype, $sshkey ) {
+ 
+  $username = $title
+ 
+  user { "$username":
+    comment    => "$name",
+    home       => "/home/$username",
+    shell      => "/bin/bash",
+    uid        => $uid,
+    gid        => $uid,
+    managehome => "true",
+    password   => "$password",
+    groups     => $groups,
+  }
+ 
+  group { "$username":
+    gid => $uid,
+  }
+ 
+  ssh_authorized_key { "default-ssh-key-for-$username":
+    user   => "$username",
+    ensure => present,
+    type   => "$sshkeytype",
+    key    => "$sshkey",
+    name   => "$username",
+  }
+ 
+}
+
+####
+file { "/this/is/a/title":
+  ...
+}
+ 
+group { "and-so-is-this".
+  ...
+}
+ 
+package { "yet-another-title":
+  ...
+}
+#+end_src
+
+
+*** /etc/puppet/modules/user-ubuntu/manifests/init.pp on puppetserver
+#+begin_src bash
+class user-ubuntu {
+ 
+  macro-useradd { "ubuntu":
+    name       => "ubuntu",
+    uid        => "1000",
+    password   => '$6$WzFG7Ga3$.BbRW/DFGkx5EIakXIt1udCGxVDPs2uFZg.o8EFzH8BX7cutimTCfTUWDdyHoFjDVTFnBkUWVPGntQTRSo1zp0',
+    groups     => ["adm", "cdrom", "sudo", "dip", "plugdev", "lpadmin", "sambashare"],
+    sshkeytype => "ssh-rsa",
+    sshkey     => "AAAAB3NzaC1yc2EAAAADAQABAAABAQCvphOrxjMvgtBVTjMzPolL4JGarEigbPuH3cE3iNIcSBPgHyBjDwtin6ls6aMzm0ZbHMdinj1qxSbolkTQ1danZpOAe0G9NB9/ZnYCNd/kUeMAX91B0Pitx6NKoaz0x7H7V1Javd11RN3ylBw6dtOh35Lqmjx22RXNK8sMpLW8tKYOQuY01F5Eiv08U/AKO83w2ZNxYbNuuhHWeN7wHTb176uhuhGGnob0ArvaxCJgJ96bvDYLSph6V067q0chTuutLGSDA4AbC1Bb/d3wcAIqEM1s6VMT8oU0rUHkPH/1AqaKhWDrEcbSp94gAqTMWQxVz+XWBvu1Dc+CsujsqigT"
+  }
+ 
+}
+#+end_src
+
+
+
+* Add more Users
+*** /etc/puppet/modules/user-mary/manifests/init.pp on puppetserver
+#+begin_src bash
+class user-mary {
+ 
+  macro-useradd { "mary":
+    name       => "Mary",
+    uid        => "1001",
+    password   => '$6$WzFG7Ga3$.BbRW/DFGkx5EIakXIt1udCGxVDPs2uFZg.o8EFzH8BX7cutimTCfTUWDdyHoFjDVTFnBkUWVPGntQTRSo1zp0',
+    groups     => ["sudo"],
+    sshkeytype => "ssh-rsa",
+    sshkey     => "AAAAB3NzaC1yc2EAAAADAQABAAABAQCvphOrxjMvgtBVTjMzPolL4JGarEigbPuH3cE3iNIcSBPgHyBjDwtin6ls6aMzm0ZbHMdinj1qxSbolkTQ1danZpOAe0G9NB9/ZnYCNd/kUeMAX91B0Pitx6NKoaz0x7H7V1Javd11RN3ylBw6dtOh35Lqmjx22RXNK8sMpLW8tKYOQuY01F5Eiv08U/AKO83w2ZNxYbNuuhHWeN7wHTb176uhuhGGnob0ArvaxCJgJ96bvDYLSph6V067q0chTuutLGSDA4AbC1Bb/d3wcAIqEM1s6VMT8oU0rUHkPH/1AqaKhWDrEcbSp94gAqTMWQxVz+XWBvu1Dc+CsujsqigT"
+  }
+ 
+}
+#+end_src
+
+
+*** /etc/puppet/modules/user-bob/manifests/init.pp on puppetserver
+#+begin_src bash
+class user-bob {
+ 
+  macro-useradd { "bob":
+    name       => "Bob",
+    uid        => "1002",
+    password   => '$6$WzFG7Ga3$.BbRW/DFGkx5EIakXIt1udCGxVDPs2uFZg.o8EFzH8BX7cutimTCfTUWDdyHoFjDVTFnBkUWVPGntQTRSo1zp0',
+    groups     => [],
+    sshkeytype => "ssh-rsa",
+    sshkey     => "AAAAB3NzaC1yc2EAAAADAQABAAABAQCvphOrxjMvgtBVTjMzPolL4JGarEigbPuH3cE3iNIcSBPgHyBjDwtin6ls6aMzm0ZbHMdinj1qxSbolkTQ1danZpOAe0G9NB9/ZnYCNd/kUeMAX91B0Pitx6NKoaz0x7H7V1Javd11RN3ylBw6dtOh35Lqmjx22RXNK8sMpLW8tKYOQuY01F5Eiv08U/AKO83w2ZNxYbNuuhHWeN7wHTb176uhuhGGnob0ArvaxCJgJ96bvDYLSph6V067q0chTuutLGSDA4AbC1Bb/d3wcAIqEM1s6VMT8oU0rUHkPH/1AqaKhWDrEcbSp94gAqTMWQxVz+XWBvu1Dc+CsujsqigT"
+  }
+ 
+}
+#+end_src
+
+
+* Manage User's Permission
+*** On the puppetserver VM
+#+begin_src bash
+~# sudo mkdir -p /etc/puppet/modules/sudo/manifests
+~# sudo mkdir -p /etc/puppet/modules/sudo/files/etc
+#+end_src
+
+
+*** /etc/puppet/modules/sudo/manifests/init.pp on puppetserver
+#+begin_src bash
+class sudo {
+ 
+  package { "sudo":
+    ensure => present,
+  }
+ 
+  file { "/etc/sudoers":
+    owner   => "root",
+    group   => "root",
+    mode    => 0440,
+    source  => "puppet://$puppetserver/modules/sudo/etc/sudoers",
+    require => Package["sudo"],
+  }
+ 
+}
+#+end_src
+
+
+*** /etc/puppet/modules/sudo/files/etc/sudoers on puppetserver
+#+begin_src bash
+Defaults        env_reset
+Defaults        secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ 
+# Host alias specification
+ 
+# User alias specification
+ 
+# Cmnd alias specification
+ 
+# User privilege specification
+root ALL=(ALL:ALL) ALL
+ 
+# Members of the admin group may gain root privileges
+%admin ALL=(ALL) ALL
+ 
+# Allow members of group sudo to execute any command
+%sudo ALL=(ALL:ALL) ALL
+ 
+# Bob has superuser privileges on puppetclient only
+bob puppetclient=(ALL:ALL) ALL
+#+end_src
+
+*** /etc/puppet/manifests/site.pp on puppetserver
+#+begin_src bash
+class users {
+  include user-ubuntu
+  include user-mary
+  include user-bob
+  include sudo
+}
+ 
+node "puppetclient" {
+  include users
+  include apache2
+}
+#+end_src
+
+
+*** On the puppetclient VM
+#+begin_src bash
+~# sudo puppet agent --verbose --no-daemonize --onetime
+ 
+info: Caching catalog for puppetclient
+info: Applying configuration version '1399957763'
+info: FileBucket adding {md5}1b00ee0a97a1bcf9961e476140e2c5c1
+info: /Stage[main]/Sudo/File[/etc/sudoers]: Filebucketed /etc/sudoers to puppet with sum 1b00ee0a97a1bcf9961e476140e2c5c1
+notice: /Stage[main]/Sudo/File[/etc/sudoers]/content: content changed '{md5}1b00ee0a97a1bcf9961e476140e2c5c1' to '{md5}c5de61ca64ad4ef2e85e37d728d1be9f'
+notice: /Stage[main]/User-mary/Macro-useradd[mary]/Group[mary]/ensure: created
+notice: /Stage[main]/User-mary/Macro-useradd[mary]/User[mary]/ensure: created
+notice: /Stage[main]/User-mary/Macro-useradd[mary]/Ssh_authorized_key[default-ssh-key-for-mary]/ensure: created
+notice: /Stage[main]/User-bob/Macro-useradd[bob]/Group[bob]/ensure: created
+notice: /Stage[main]/User-bob/Macro-useradd[bob]/User[bob]/ensure: created
+notice: /Stage[main]/User-bob/Macro-useradd[bob]/Ssh_authorized_key[default-ssh-key-for-bob]/ensure: created
+notice: Finished catalog run in 0.47 seconds
+#+end_src
+
+
+* Nagios Integration
+http://www.cnblogs.com/mchina/archive/2013/02/20/2883404.html
